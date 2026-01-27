@@ -1,50 +1,48 @@
 export const colors = {
-  tomato: '#E14B3B',
-  leaf: '#3F8C5B',
-  cream: '#F3F1E8',
-  charcoal: '#2C2C2C',
-  charcoalSoft: '#4A4A4A',
-  line: '#D9D6CA',
+  primary: '#DD3B37',
+  secondaryYellow: '#DEDE3F',
+  secondaryBlue: '#3EACFA',
+  textDark: '#081E25',
+  background: '#F6F8F9',
   white: '#FFFFFF',
+  line: '#E3E7EA',
 } as const;
 
 export const spacing = {
   xs: 4,
   sm: 8,
-  md: 16,
-  lg: 24,
-  xl: 32,
-  xxl: 40,
+  md: 12,
+  lg: 16,
+  xl: 24,
+  xxl: 32,
 } as const;
 
 export const radius = {
-  sm: 8,
-  md: 12,
-  lg: 16,
-  pill: 999,
+  sm: 12,
+  md: 16,
+  lg: 24,
 } as const;
 
 export const typography = {
   family: {
-    regular: 'Montserrat-Regular',
-    medium: 'Montserrat-Medium',
-    semibold: 'Montserrat-SemiBold',
+    primary: 'Satoshi',
+    regular: 'Satoshi',
+    medium: 'Satoshi',
+    bold: 'Satoshi',
     fallback: 'System',
+  },
+  weight: {
+    regular: '400',
+    medium: '500',
+    bold: '700',
   },
   size: {
     xs: 12,
     sm: 14,
     md: 16,
     lg: 20,
-    xl: 28,
-    xxl: 36,
-  },
-  lineHeight: {
-    sm: 18,
-    md: 22,
-    lg: 26,
-    xl: 34,
-    xxl: 44,
+    xl: 24,
+    xxl: 32,
   },
 } as const;
 
