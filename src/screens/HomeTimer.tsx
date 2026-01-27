@@ -1,7 +1,30 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { usePomodoro } from '../hooks/usePomodoro';
 import { colors, radius, spacing, typography } from '../theme/tokens';
 
 export default function HomeTimer() {
+  const {
+    mode,
+    isRunning,
+    remainingSeconds,
+    pomodorosCompleted,
+    label,
+    start,
+    pause,
+    resume,
+    skipBreak,
+  } = usePomodoro();
+
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = remainingSeconds % 60;
+  const timeLabel = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+  const primaryLabel = isRunning ? 'Pausar' : mode === 'paused' ? 'Reanudar' : 'Iniciar';
+  const onPrimaryPress = isRunning ? pause : mode === 'paused' ? resume : start;
+
+  const totalPomodoros = 4;
+  const showSkipBreak = mode === 'shortBreak' || mode === 'longBreak';
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -16,22 +39,41 @@ export default function HomeTimer() {
         </View>
 
         <View style={styles.timerBlock}>
-          <Text style={styles.timerState}>Work</Text>
-          <Text style={styles.timer}>25:00</Text>
-          <Text style={styles.timerNote}>Sesión de enfoque</Text>
+          <Text style={styles.timerState}>{label}</Text>
+          <Text style={styles.timer}>{timeLabel}</Text>
+          <Text style={styles.timerNote}>
+            {mode === 'paused' ? 'Pausado' : isRunning ? 'En curso' : 'Listo para iniciar'}
+          </Text>
         </View>
 
         <View style={styles.progressRow}>
-          <View style={styles.tomatoDot} />
-          <View style={styles.tomatoDot} />
-          <View style={styles.tomatoDotEmpty} />
-          <Text style={styles.tomatoLabel}>2/5 tomates</Text>
+          {Array.from({ length: totalPomodoros }).map((_, index) => (
+            <View
+              key={`pomodoro-${index}`}
+              style={index < pomodorosCompleted ? styles.tomatoDot : styles.tomatoDotEmpty}
+            />
+          ))}
+          <Text style={styles.tomatoLabel}>
+            {pomodorosCompleted}/{totalPomodoros} tomates
+          </Text>
         </View>
       </View>
 
-      <Pressable style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed]}>
-        <Text style={styles.primaryButtonText}>Iniciar</Text>
+      <Pressable
+        onPress={onPrimaryPress}
+        style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed]}
+      >
+        <Text style={styles.primaryButtonText}>{primaryLabel}</Text>
       </Pressable>
+
+      {showSkipBreak && (
+        <Pressable
+          onPress={skipBreak}
+          style={({ pressed }) => [styles.secondaryButton, pressed && styles.secondaryButtonPressed]}
+        >
+          <Text style={styles.secondaryButtonText}>Saltar descanso</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -154,6 +196,24 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     fontSize: typography.size.lg,
     color: colors.white,
+    fontFamily: typography.family.bold,
+  },
+  secondaryButton: {
+    marginTop: spacing.sm,
+    width: '100%',
+    paddingVertical: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    alignItems: 'center',
+  },
+  secondaryButtonPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
+  },
+  secondaryButtonText: {
+    fontSize: typography.size.md,
+    color: colors.primary,
     fontFamily: typography.family.bold,
   },
 });
