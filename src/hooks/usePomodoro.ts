@@ -1,4 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  hapticEnd,
+  hapticStart,
+  playBreakEndSound,
+  playFocusEndSound,
+  playStartSound,
+} from '../services/feedback';
 
 export type PomodoroMode = 'idle' | 'focus' | 'shortBreak' | 'longBreak' | 'paused';
 type SegmentMode = 'focus' | 'shortBreak' | 'longBreak';
@@ -70,6 +77,8 @@ export function usePomodoro(options: PomodoroOptions = {}) {
       if (shouldRun) {
         setIsRunning(true);
         endTimestampRef.current = Date.now() + duration * 1000;
+        void playStartSound();
+        void hapticStart();
       } else {
         setIsRunning(false);
         endTimestampRef.current = null;
@@ -104,6 +113,14 @@ export function usePomodoro(options: PomodoroOptions = {}) {
       setRemainingSeconds(remaining);
       if (remaining <= 0) {
         transitioningRef.current = true;
+        const finishedSegment = currentSegmentRef.current;
+        if (finishedSegment === 'focus') {
+          void playFocusEndSound();
+          void hapticEnd();
+        } else {
+          void playBreakEndSound();
+          void hapticEnd();
+        }
         advanceSegment();
         transitioningRef.current = false;
       }
@@ -122,6 +139,8 @@ export function usePomodoro(options: PomodoroOptions = {}) {
     setMode(currentSegment);
     setIsRunning(true);
     endTimestampRef.current = Date.now() + duration * 1000;
+    void playStartSound();
+    void hapticStart();
   }, [currentSegment, durations, isRunning, mode, remainingSeconds]);
 
   const pause = useCallback(() => {
@@ -133,6 +152,7 @@ export function usePomodoro(options: PomodoroOptions = {}) {
     setIsRunning(false);
     setMode('paused');
     endTimestampRef.current = null;
+    void playStartSound();
   }, [getRemainingSeconds, isRunning]);
 
   const resume = useCallback(() => {
@@ -142,6 +162,8 @@ export function usePomodoro(options: PomodoroOptions = {}) {
     setMode(currentSegment);
     setIsRunning(true);
     endTimestampRef.current = Date.now() + remainingSeconds * 1000;
+    void playStartSound();
+    void hapticStart();
   }, [currentSegment, mode, remainingSeconds]);
 
   const reset = useCallback(() => {
