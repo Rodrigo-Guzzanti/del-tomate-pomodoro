@@ -43,7 +43,7 @@ export default function App() {
         <Stack.Screen
           name="HomeTimer"
           component={HomeTimer}
-          options={{ title: 'Del Tomate' }}
+          options={{ title: 'Del Tomate', headerShown: false }}
         />
         <Stack.Screen name="Tasks" component={Tasks} options={{ title: 'Tareas' }} />
         <Stack.Screen
