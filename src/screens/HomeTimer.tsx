@@ -1,347 +1,227 @@
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useEffect, useRef } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
+import { StatusBar } from 'expo-status-bar';
+import StateBackground, { type BackgroundVariant } from '../components/StateBackground';
 import { usePomodoro } from '../hooks/usePomodoro';
-import { cancelPomodoroNotifications } from '../services/notifications';
-import { clearPomodoroState } from '../storage/pomodoroStorage';
-import { colors, radius, spacing, typography } from '../theme/tokens';
+import { colors, radius, typography } from '../theme/tokens';
 
 export default function HomeTimer() {
-  const {
-    mode,
-    isRunning,
-    remainingSeconds,
-    pomodorosCompleted,
-    label,
-    start,
-    pause,
-    resume,
-    reset,
-    skipBreak,
-  } = usePomodoro();
+  const { mode, isRunning, remainingSeconds, start, pause, resume } = usePomodoro();
 
   const minutes = Math.floor(remainingSeconds / 60);
   const seconds = remainingSeconds % 60;
   const timeLabel = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 
-  const primaryLabel = isRunning ? 'Pausar' : mode === 'paused' ? 'Reanudar' : 'Iniciar';
-  const onPrimaryPress = isRunning ? pause : mode === 'paused' ? resume : start;
+  const nextThemeState = useMemo<BackgroundVariant>(() => {
+    if (mode === 'shortBreak' || mode === 'longBreak') {
+      return 'break';
+    }
 
-  const totalPomodoros = 4;
-  const showSkipBreak = mode === 'shortBreak' || mode === 'longBreak';
+    if (mode === 'focus') {
+      return 'focus';
+    }
 
-  const isPaused = mode === 'paused';
-  const isReady = !isRunning && !isPaused;
+    return 'idle';
+  }, [mode]);
 
-  const backgroundAnim = useRef(new Animated.Value(isReady ? 0 : 1)).current;
+  const [themeState, setThemeState] = useState<BackgroundVariant>(nextThemeState);
 
   useEffect(() => {
-    Animated.timing(backgroundAnim, {
-      toValue: isReady ? 0 : 1,
-      duration: 420,
-      useNativeDriver: false,
-    }).start();
-  }, [backgroundAnim, isReady]);
+    if (mode !== 'paused') {
+      setThemeState(nextThemeState);
+    }
+  }, [mode, nextThemeState]);
 
-  const screenBackground = backgroundAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [colors.primary, colors.textDark],
-  });
-
-  const ui = {
-    textSecondary: isReady ? colors.textDark : colors.white,
-    textSecondaryOpacity: isReady ? 0.85 : 0.65,
-    timerState: isReady ? colors.textDark : colors.white,
-    timerPrimary: colors.white,
-    timerNote: isPaused ? colors.secondaryBlue : isReady ? colors.textDark : colors.white,
-    timerNoteOpacity: isPaused || isReady ? 1 : 0.65,
-    glassBackground: isReady ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.10)',
-    glassBorder: isReady ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.18)',
-    glassHighlight: 'rgba(255,255,255,0.06)',
-    tomatoLabel: isReady ? colors.textDark : colors.white,
-    tomatoLabelOpacity: isReady ? 0.7 : 0.6,
-    tomatoDot: isReady ? 'rgba(255,255,255,0.92)' : colors.primary,
-    tomatoDotEmpty: isReady ? 'rgba(8,30,37,0.36)' : 'rgba(255,255,255,0.35)',
-    primaryButtonBackground: isReady ? colors.textDark : colors.primary,
-    secondaryButtonBorder: isReady ? colors.primary : 'rgba(255,255,255,0.3)',
-    secondaryButtonText: isReady ? colors.primary : colors.white,
-  };
+  const onStartPress = mode === 'paused' ? resume : start;
 
   return (
-    <Animated.View style={[styles.container, { backgroundColor: screenBackground }]}>
-      <View style={styles.content}>
-        <View style={styles.taskBlock}>
-          <Text
-            style={[
-              styles.sectionLabel,
-              { color: ui.textSecondary, opacity: ui.textSecondaryOpacity },
-            ]}
-          >
-            Tarea activa
-          </Text>
-          <Pressable
-            onPress={() => {}}
-            accessibilityRole="button"
-            style={({ pressed }) => [
-              styles.selector,
-              styles.glassPill,
-              { backgroundColor: ui.glassBackground, borderColor: ui.glassBorder },
-              pressed && styles.selectorPressed,
-            ]}
-          >
-            <View
-              pointerEvents="none"
-              style={[styles.glassHighlight, { backgroundColor: ui.glassHighlight }]}
-            />
-            <Text
-              style={[
-                styles.selectorText,
-                { color: ui.textSecondary, opacity: ui.textSecondaryOpacity },
-              ]}
-            >
-              Elegir tarea
-            </Text>
+    <View style={styles.screen}>
+      <StatusBar style="dark" />
+      <StateBackground mode={mode} isPaused={mode === 'paused'} variant={themeState} />
+
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
+        <View style={styles.header}>
+          <Pressable accessibilityRole="button" style={styles.settingsButton}>
+            <Text style={styles.settingsGlyph}>⚙</Text>
           </Pressable>
         </View>
 
-        <View
-          style={[
-            styles.timerBlock,
-            styles.glassPanel,
-            { backgroundColor: ui.glassBackground, borderColor: ui.glassBorder },
-          ]}
-        >
-          <View
-            pointerEvents="none"
-            style={[styles.glassHighlight, { backgroundColor: ui.glassHighlight }]}
-          />
-          <Text style={[styles.timerState, { color: ui.timerState }]}>{label}</Text>
-          <Text style={[styles.timer, { color: ui.timerPrimary }]}>{timeLabel}</Text>
-          <Text style={[styles.timerNote, { color: ui.timerNote, opacity: ui.timerNoteOpacity }]}>
-            {mode === 'paused' ? 'Pausado' : isRunning ? 'En curso' : 'Listo para iniciar'}
-          </Text>
+        <View style={styles.centerArea}>
+          <View style={styles.timerPillShell}>
+            <BlurView intensity={10} tint="dark" style={StyleSheet.absoluteFill} />
+            <View style={styles.timerPillOverlay} />
+            <Text style={styles.timerValue}>{timeLabel}</Text>
+          </View>
+
+          <View style={styles.activeTaskWrap}>
+            <Text style={styles.activeTaskText}>#Active task</Text>
+            <View style={styles.activeTaskUnderline} />
+          </View>
         </View>
 
-        <View style={styles.progressRow}>
-          {Array.from({ length: totalPomodoros }).map((_, index) => (
-            <View
-              key={`pomodoro-${index}`}
-              style={[
-                index < pomodorosCompleted ? styles.tomatoDot : styles.tomatoDotEmpty,
-                {
-                  backgroundColor: index < pomodorosCompleted ? ui.tomatoDot : 'transparent',
-                  borderColor: ui.tomatoDotEmpty,
-                },
-              ]}
-            />
-          ))}
-          <Text
-            style={[styles.tomatoLabel, { color: ui.tomatoLabel, opacity: ui.tomatoLabelOpacity }]}
-          >
-            {pomodorosCompleted}/{totalPomodoros} tomates
-          </Text>
+        <View style={styles.bottomArea}>
+          {!isRunning ? (
+            <Pressable
+              onPress={onStartPress}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.startButton, pressed && styles.startButtonPressed]}
+            >
+              <BlurView intensity={10} tint="dark" style={StyleSheet.absoluteFill} />
+              <View style={styles.startButtonOverlay} />
+              <Text style={styles.startButtonText}>Start</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={pause}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.pauseLinkTouch, pressed && styles.pauseLinkPressed]}
+            >
+              <Text style={styles.pauseLinkText}>Pause</Text>
+              <View style={styles.pauseUnderline} />
+            </Pressable>
+          )}
         </View>
-      </View>
-
-      <Pressable
-        onPress={onPrimaryPress}
-        style={({ pressed }) => [
-          styles.primaryButton,
-          { backgroundColor: ui.primaryButtonBackground },
-          pressed && styles.primaryButtonPressed,
-        ]}
-      >
-        <Text style={styles.primaryButtonText}>{primaryLabel}</Text>
-      </Pressable>
-
-      {showSkipBreak && (
-        <Pressable
-          onPress={skipBreak}
-          style={({ pressed }) => [
-            styles.secondaryButton,
-            { borderColor: ui.secondaryButtonBorder },
-            pressed && styles.secondaryButtonPressed,
-          ]}
-        >
-          <Text style={[styles.secondaryButtonText, { color: ui.secondaryButtonText }]}>
-            Saltar descanso
-          </Text>
-        </Pressable>
-      )}
-
-      {__DEV__ && (
-        <Pressable
-          onPress={() => {
-            reset();
-            void clearPomodoroState();
-            void cancelPomodoroNotifications();
-          }}
-          style={({ pressed }) => [
-            styles.debugButton,
-            { borderColor: ui.secondaryButtonBorder },
-            pressed && styles.secondaryButtonPressed,
-          ]}
-        >
-          <Text style={[styles.debugButtonText, { color: ui.secondaryButtonText }]}>
-            Reset (debug)
-          </Text>
-        </Pressable>
-      )}
-    </Animated.View>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xxl,
-    paddingBottom: spacing.xl,
-    alignItems: 'center',
+    backgroundColor: '#081e25',
   },
-  content: {
+  safeArea: {
     flex: 1,
-    width: '100%',
+    paddingHorizontal: 30,
+    paddingBottom: 34,
+    zIndex: 1,
+  },
+  header: {
+    height: 52,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+  },
+  settingsButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsGlyph: {
+    fontSize: 22,
+    lineHeight: 22,
+    color: 'rgba(8,30,37,0.20)',
+    fontFamily: typography.family.medium,
+  },
+  centerArea: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 24,
+    marginTop: -16,
   },
-  taskBlock: {
+  timerPillShell: {
     width: '100%',
-    marginBottom: spacing.xl,
-  },
-  sectionLabel: {
-    fontSize: typography.size.sm,
-    color: colors.textDark,
-    fontFamily: typography.family.medium,
-  },
-  selector: {
-    marginTop: spacing.sm,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
+    maxWidth: 430,
+    borderRadius: 999, 
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
     overflow: 'hidden',
-    position: 'relative',
-  },
-  glassPill: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-  },
-  selectorPressed: {
-    opacity: 0.85,
-  },
-  selectorText: {
-    fontSize: typography.size.md,
-    color: colors.textDark,
-    fontFamily: typography.family.medium,
-  },
-  timerBlock: {
-    width: '100%',
-    overflow: 'hidden',
-    position: 'relative',
     alignItems: 'center',
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.lg,
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 34,
+    shadowColor: '#401414',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.24,
+    shadowRadius: 16,
+    elevation: 10,
   },
-  glassPanel: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    shadowColor: colors.textDark,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.16,
-    shadowRadius: 24,
-    elevation: 8,
+  timerPillOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(8,30,37,0.20)',
   },
-  glassHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '42%',
-  },
-  timerState: {
-    fontSize: typography.size.sm,
-    letterSpacing: 2.2,
-    textTransform: 'uppercase',
+  timerValue: {
+    fontSize: 60,
+    lineHeight: 80,
     fontFamily: typography.family.bold,
+    letterSpacing: -1.8,
+    color: '#08222b',
   },
-  timer: {
-    marginTop: spacing.sm,
-    fontSize: 56,
-    fontFamily: typography.family.bold,
-    letterSpacing: -1,
+  activeTaskWrap: {
+    alignItems: 'center',
   },
-  timerNote: {
-    marginTop: spacing.xs,
-    fontSize: typography.size.sm,
+  activeTaskText: {
+    fontSize: 22,
+    lineHeight: 48,
+    color: '#081e25',
+    opacity:0.60,
     fontFamily: typography.family.regular,
+    letterSpacing: 0.7,
   },
-  progressRow: {
-    marginTop: spacing.lg,
-    flexDirection: 'row',
+  activeTaskUnderline: {
+    marginTop: 2,
+    height: 2,
+    width: 190,
+    backgroundColor: 'rgba(211, 211, 211, 0.2)',
+  },
+  bottomArea: {
+    minHeight: 190,
     alignItems: 'center',
-    gap: spacing.sm,
+    justifyContent: 'flex-end',
+    gap: 18,
   },
-  tomatoDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+  startButton: {
+    minWidth: 200,
+    borderRadius: 999,
     borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    paddingVertical: 8,
+    paddingHorizontal: 60,
   },
-  tomatoDotEmpty: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 1,
+  startButtonPressed: {
+    opacity: 0.88,
   },
-  tomatoLabel: {
-    fontSize: typography.size.sm,
-    color: colors.textDark,
-    fontFamily: typography.family.medium,
+  startButtonOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(8,30,37,0.20)',
+  },
+  startButtonText: {
+    fontSize: 32,
+    lineHeight: 56,
+    fontWeight:"700",
+    color: 'rgba(255, 255, 255, 0.90)',
+    fontFamily: typography.family.bold,
+    letterSpacing: 1.5,
+  },
+  pauseLinkTouch: {
+    minHeight: 44,
+    minWidth: 126,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pauseLinkPressed: {
     opacity: 0.7,
   },
-  primaryButton: {
-    marginTop: spacing.xl,
-    width: '100%',
-    paddingVertical: spacing.lg,
-    borderRadius: radius.lg,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-  },
-  primaryButtonPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
-  },
-  primaryButtonText: {
-    fontSize: typography.size.lg,
-    color: colors.white,
-    fontFamily: typography.family.bold,
-  },
-  secondaryButton: {
-    marginTop: spacing.sm,
-    width: '100%',
-    paddingVertical: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    alignItems: 'center',
-  },
-  secondaryButtonPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
-  },
-  secondaryButtonText: {
-    fontSize: typography.size.md,
-    color: colors.primary,
-    fontFamily: typography.family.bold,
-  },
-  debugButton: {
-    marginTop: spacing.sm,
-    width: '100%',
-    paddingVertical: spacing.sm,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    alignItems: 'center',
-  },
-  debugButtonText: {
-    fontSize: typography.size.sm,
+  pauseLinkText: {
+    fontSize: 25,
+    lineHeight: 38,
+    color: 'rgba(231,242,255,0.80)',
     fontFamily: typography.family.medium,
+    letterSpacing: -0.3,
+  },
+  pauseUnderline: {
+    marginTop: 4,
+    width: 90,
+    height: 1,
+    backgroundColor: 'rgba(231,242,255,0.50)',
   },
 });
