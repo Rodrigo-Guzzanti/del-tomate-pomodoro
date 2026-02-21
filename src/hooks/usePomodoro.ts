@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Constants from 'expo-constants';
+import { unstable_batchedUpdates } from 'react-native';
 import {
   hapticEnd,
   hapticStart,
@@ -63,7 +64,7 @@ export function usePomodoro(options: PomodoroOptions = {}) {
 
   const autoStart = options.autoStart ?? false;
 
-  const [mode, setMode] = useState<PomodoroMode>('idle');
+  const [mode, setModeState] = useState<PomodoroMode>('idle');
   const [currentSegment, setCurrentSegment] = useState<SegmentMode>('focus');
   const [isRunning, setIsRunning] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState(durations.focus);
@@ -74,6 +75,21 @@ export function usePomodoro(options: PomodoroOptions = {}) {
   const pomodorosCompletedRef = useRef(0);
   const currentSegmentRef = useRef<SegmentMode>('focus');
   const rehydratedRef = useRef(false);
+  const modeRef = useRef<PomodoroMode>('idle');
+  const userInteractedRef = useRef(false);
+
+  const setModeDebug = useCallback((nextMode: PomodoroMode, reason: string) => {
+    const prevMode = modeRef.current;
+    if (__DEV__) {
+      if (prevMode !== nextMode) {
+        console.log('[Pomodoro/mode]', `${prevMode} -> ${nextMode}`, { reason });
+      } else {
+        console.log('[Pomodoro/mode]', `${prevMode} (no-op)`, { reason });
+      }
+    }
+    modeRef.current = nextMode;
+    setModeState(nextMode);
+  }, []);
 
   useEffect(() => {
     pomodorosCompletedRef.current = pomodorosCompleted;
@@ -124,12 +140,28 @@ export function usePomodoro(options: PomodoroOptions = {}) {
       const withFeedback = options?.withFeedback ?? true;
       const nextPomodorosCompleted =
         options?.pomodorosCompleted ?? pomodorosCompletedRef.current;
-      setCurrentSegment(nextSegment);
-      setMode(nextSegment);
-      setRemainingSeconds(duration);
+      unstable_batchedUpdates(() => {
+        setCurrentSegment(nextSegment);
+        setModeDebug(nextSegment, 'startSegment');
+        setRemainingSeconds(duration);
+        if (shouldRun) {
+          setIsRunning(true);
+          endTimestampRef.current = startTimestampMs + duration * 1000;
+        } else {
+          setIsRunning(false);
+          endTimestampRef.current = null;
+        }
+      });
+      currentSegmentRef.current = nextSegment;
+      persistState({
+        mode: nextSegment,
+        isRunning: shouldRun,
+        currentSegment: nextSegment,
+        pomodorosCompleted: nextPomodorosCompleted,
+        endTimestampMs: shouldRun ? startTimestampMs + duration * 1000 : null,
+        remainingSeconds: duration,
+      });
       if (shouldRun) {
-        setIsRunning(true);
-        endTimestampRef.current = startTimestampMs + duration * 1000;
         void cancelPomodoroNotifications();
         void schedulePomodoroNotification(
           nextSegment === 'focus' ? 'focus' : 'break',
@@ -139,20 +171,9 @@ export function usePomodoro(options: PomodoroOptions = {}) {
           void playStartSound();
           void hapticStart();
         }
-      } else {
-        setIsRunning(false);
-        endTimestampRef.current = null;
       }
-      persistState({
-        mode: nextSegment,
-        isRunning: shouldRun,
-        currentSegment: nextSegment,
-        pomodorosCompleted: nextPomodorosCompleted,
-        endTimestampMs: shouldRun ? startTimestampMs + duration * 1000 : null,
-        remainingSeconds: duration,
-      });
     },
-    [durations, persistState]
+    [durations, persistState, setModeDebug]
   );
 
   const advanceSegment = useCallback(() => {
@@ -162,8 +183,22 @@ export function usePomodoro(options: PomodoroOptions = {}) {
       setPomodorosCompleted(nextCount);
       const nextSegment: SegmentMode =
         nextCount % 4 === 0 ? 'longBreak' : 'shortBreak';
+      if (__DEV__) {
+        console.log('[Pomodoro/transition]', {
+          from: 'focus',
+          to: nextSegment,
+          pomodorosCompleted: nextCount,
+        });
+      }
       startSegment(nextSegment, autoStart, { pomodorosCompleted: nextCount });
     } else {
+      if (__DEV__) {
+        console.log('[Pomodoro/transition]', {
+          from: segment,
+          to: 'focus',
+          pomodorosCompleted: pomodorosCompletedRef.current,
+        });
+      }
       startSegment('focus', autoStart);
     }
   }, [autoStart, startSegment]);
@@ -180,6 +215,10 @@ export function usePomodoro(options: PomodoroOptions = {}) {
         rehydratedRef.current = true;
         return;
       }
+      if (userInteractedRef.current) {
+        rehydratedRef.current = true;
+        return;
+      }
 
       let nextSegment = saved.currentSegment;
       let nextPomodorosCompleted = saved.pomodorosCompleted;
@@ -187,6 +226,12 @@ export function usePomodoro(options: PomodoroOptions = {}) {
       let nextIsRunning = saved.isRunning;
       let nextRemainingSeconds = saved.remainingSeconds;
       let nextEndTimestampMs = saved.endTimestampMs ?? null;
+
+      if (nextMode === 'paused') {
+        nextMode = nextSegment;
+        nextIsRunning = false;
+        nextEndTimestampMs = null;
+      }
 
       if (saved.isRunning && saved.endTimestampMs) {
         const nowMs = Date.now();
@@ -234,16 +279,20 @@ export function usePomodoro(options: PomodoroOptions = {}) {
         }
       } else if (saved.isRunning && !saved.endTimestampMs) {
         nextIsRunning = false;
-        nextMode = 'paused';
+        nextMode = nextSegment;
         nextEndTimestampMs = null;
       }
 
-      setCurrentSegment(nextSegment);
-      setPomodorosCompleted(nextPomodorosCompleted);
-      setMode(nextMode);
-      setIsRunning(nextIsRunning);
-      setRemainingSeconds(nextRemainingSeconds);
+      unstable_batchedUpdates(() => {
+        setCurrentSegment(nextSegment);
+        setPomodorosCompleted(nextPomodorosCompleted);
+        setModeDebug(nextMode, 'rehydrate');
+        setIsRunning(nextIsRunning);
+        setRemainingSeconds(nextRemainingSeconds);
+      });
       endTimestampRef.current = nextEndTimestampMs;
+      currentSegmentRef.current = nextSegment;
+      pomodorosCompletedRef.current = nextPomodorosCompleted;
 
       persistState({
         mode: nextMode,
@@ -269,7 +318,7 @@ export function usePomodoro(options: PomodoroOptions = {}) {
     return () => {
       isMounted = false;
     };
-  }, [autoStart, durations, persistState]);
+  }, [autoStart, durations, persistState, setModeDebug]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -303,92 +352,148 @@ export function usePomodoro(options: PomodoroOptions = {}) {
   }, [advanceSegment, getRemainingSeconds, isRunning]);
 
   const start = useCallback(() => {
-    if (isRunning || mode === 'paused') {
+    if (isRunning) {
       return;
     }
-    const duration = remainingSeconds || durations[currentSegment];
-    setMode(currentSegment);
-    setIsRunning(true);
+    userInteractedRef.current = true;
+    const nextSegment: SegmentMode =
+      mode === 'idle'
+        ? 'focus'
+        : mode === 'focus' || mode === 'shortBreak' || mode === 'longBreak'
+          ? mode
+          : currentSegmentRef.current;
+    const modeDuration = durations[nextSegment];
+    const needsModeDuration = remainingSeconds <= 0;
+    const duration = needsModeDuration ? modeDuration : remainingSeconds;
     const startTimestampMs = Date.now();
-    endTimestampRef.current = startTimestampMs + duration * 1000;
+    const nextEndTimestamp = startTimestampMs + duration * 1000;
+    unstable_batchedUpdates(() => {
+      setCurrentSegment(nextSegment);
+      if (mode !== nextSegment) {
+        setModeDebug(nextSegment, 'start');
+      }
+      setIsRunning(true);
+      if (needsModeDuration) {
+        setRemainingSeconds(modeDuration);
+      }
+    });
+    currentSegmentRef.current = nextSegment;
+    endTimestampRef.current = nextEndTimestamp;
+    if (__DEV__) {
+      console.log('[Pomodoro/start]', {
+        modeBeforeStart: mode,
+        modeAfterStart: nextSegment,
+        remainingBeforeStart: remainingSeconds,
+        remainingAfterStart: needsModeDuration ? modeDuration : remainingSeconds,
+      });
+    }
     void cancelPomodoroNotifications();
     void schedulePomodoroNotification(
-      currentSegment === 'focus' ? 'focus' : 'break',
+      nextSegment === 'focus' ? 'focus' : 'break',
       duration
     );
     void playStartSound();
     void hapticStart();
     persistState({
-      mode: currentSegment,
+      mode: nextSegment,
       isRunning: true,
-      currentSegment,
+      currentSegment: nextSegment,
       pomodorosCompleted: pomodorosCompletedRef.current,
-      endTimestampMs: endTimestampRef.current,
+      endTimestampMs: nextEndTimestamp,
       remainingSeconds: duration,
     });
-  }, [currentSegment, durations, isRunning, mode, remainingSeconds]);
+  }, [durations, isRunning, mode, remainingSeconds, setModeDebug]);
 
   const pause = useCallback(() => {
     if (!isRunning) {
       return;
     }
+    userInteractedRef.current = true;
     const remaining = getRemainingSeconds();
-    setRemainingSeconds(remaining);
-    setIsRunning(false);
-    setMode('paused');
+    unstable_batchedUpdates(() => {
+      setRemainingSeconds(remaining);
+      setIsRunning(false);
+    });
     endTimestampRef.current = null;
     void playStartSound();
     void cancelPomodoroNotifications();
+    const persistedMode: PomodoroMode =
+      mode === 'focus' || mode === 'shortBreak' || mode === 'longBreak'
+        ? mode
+        : currentSegmentRef.current;
     persistState({
-      mode: 'paused',
+      mode: persistedMode,
       isRunning: false,
       currentSegment: currentSegmentRef.current,
       pomodorosCompleted: pomodorosCompletedRef.current,
       endTimestampMs: null,
       remainingSeconds: remaining,
     });
-  }, [getRemainingSeconds, isRunning, persistState]);
+  }, [getRemainingSeconds, isRunning, mode, persistState]);
 
   const resume = useCallback(() => {
-    if (mode !== 'paused') {
+    if (isRunning) {
       return;
     }
-    setMode(currentSegment);
-    setIsRunning(true);
+    userInteractedRef.current = true;
+    const resumedSegment: SegmentMode =
+      mode === 'focus' || mode === 'shortBreak' || mode === 'longBreak'
+        ? mode
+        : currentSegmentRef.current;
+    const needsModeDuration = remainingSeconds <= 0;
+    const duration = needsModeDuration ? durations[resumedSegment] : remainingSeconds;
     const startTimestampMs = Date.now();
-    endTimestampRef.current = startTimestampMs + remainingSeconds * 1000;
+    const nextEndTimestamp = startTimestampMs + duration * 1000;
+    unstable_batchedUpdates(() => {
+      setCurrentSegment(resumedSegment);
+      if (mode !== resumedSegment) {
+        setModeDebug(resumedSegment, 'resume');
+      }
+      setIsRunning(true);
+      if (needsModeDuration) {
+        setRemainingSeconds(duration);
+      }
+    });
+    endTimestampRef.current = nextEndTimestamp;
     void cancelPomodoroNotifications();
     void schedulePomodoroNotification(
-      currentSegment === 'focus' ? 'focus' : 'break',
-      remainingSeconds
+      resumedSegment === 'focus' ? 'focus' : 'break',
+      duration
     );
     void playStartSound();
     void hapticStart();
     persistState({
-      mode: currentSegment,
+      mode: resumedSegment,
       isRunning: true,
-      currentSegment,
+      currentSegment: resumedSegment,
       pomodorosCompleted: pomodorosCompletedRef.current,
-      endTimestampMs: endTimestampRef.current,
-      remainingSeconds,
+      endTimestampMs: nextEndTimestamp,
+      remainingSeconds: duration,
     });
-  }, [currentSegment, mode, persistState, remainingSeconds]);
+  }, [durations, isRunning, mode, persistState, remainingSeconds, setModeDebug]);
 
   const reset = useCallback(() => {
-    setIsRunning(false);
-    setMode('idle');
-    setCurrentSegment('focus');
-    setRemainingSeconds(durations.focus);
-    setPomodorosCompleted(0);
+    userInteractedRef.current = true;
+    unstable_batchedUpdates(() => {
+      setIsRunning(false);
+      setModeDebug('idle', 'reset');
+      setCurrentSegment('focus');
+      setRemainingSeconds(durations.focus);
+      setPomodorosCompleted(0);
+    });
     endTimestampRef.current = null;
+    transitioningRef.current = false;
+    currentSegmentRef.current = 'focus';
+    pomodorosCompletedRef.current = 0;
     void cancelPomodoroNotifications();
     void clearPomodoroState();
-  }, [durations.focus]);
+  }, [durations.focus, setModeDebug]);
 
   const skipBreak = useCallback(() => {
     if (mode !== 'shortBreak' && mode !== 'longBreak') {
       return;
     }
+    userInteractedRef.current = true;
     startSegment('focus', true);
   }, [mode, startSegment]);
 

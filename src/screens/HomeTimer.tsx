@@ -1,45 +1,47 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useEffect, useMemo, useState } from 'react';
+import { useRef } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { StatusBar } from 'expo-status-bar';
 import StateBackground, { type BackgroundVariant } from '../components/StateBackground';
-import { usePomodoro } from '../hooks/usePomodoro';
-import { colors, radius, typography } from '../theme/tokens';
+import { usePomodoro, type PomodoroMode } from '../hooks/usePomodoro';
+import { typography } from '../theme/tokens';
 
 export default function HomeTimer() {
-  const { mode, isRunning, remainingSeconds, start, pause, resume } = usePomodoro();
+  const { mode, isRunning, remainingSeconds, start, pause, resume, reset } = usePomodoro();
 
   const minutes = Math.floor(remainingSeconds / 60);
   const seconds = remainingSeconds % 60;
   const timeLabel = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 
-  const nextThemeState = useMemo<BackgroundVariant>(() => {
-    if (mode === 'shortBreak' || mode === 'longBreak') {
+  const modeToVariant = (value: PomodoroMode): BackgroundVariant => {
+    if (value === 'shortBreak' || value === 'longBreak') {
       return 'break';
     }
 
-    if (mode === 'focus') {
+    if (value === 'focus') {
       return 'focus';
     }
 
     return 'idle';
-  }, [mode]);
+  };
 
-  const [themeState, setThemeState] = useState<BackgroundVariant>(nextThemeState);
+  const lastNonPausedModeRef = useRef<PomodoroMode>(mode === 'paused' ? 'focus' : mode);
 
-  useEffect(() => {
-    if (mode !== 'paused') {
-      setThemeState(nextThemeState);
-    }
-  }, [mode, nextThemeState]);
+  if (mode !== 'paused') {
+    lastNonPausedModeRef.current = mode;
+  }
+
+  const baseMode = mode === 'paused' ? lastNonPausedModeRef.current : mode;
+  const variant = modeToVariant(baseMode);
+  if (__DEV__) console.log('[HomeTimer/bg]', { mode, baseMode, variant });
 
   const onStartPress = mode === 'paused' ? resume : start;
 
   return (
     <View style={styles.screen}>
       <StatusBar style="dark" />
-      <StateBackground mode={mode} isPaused={mode === 'paused'} variant={themeState} />
+      <StateBackground mode={mode} isPaused={mode === 'paused'} variant={variant} />
 
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
         <View style={styles.header}>
@@ -49,10 +51,20 @@ export default function HomeTimer() {
         </View>
 
         <View style={styles.centerArea}>
+          
           <View style={styles.timerPillShell}>
             <BlurView intensity={10} tint="dark" style={StyleSheet.absoluteFill} />
+
             <View style={styles.timerPillOverlay} />
             <Text style={styles.timerValue}>{timeLabel}</Text>
+            {__DEV__ ? (
+              <Pressable
+                onLongPress={reset}
+                delayLongPress={500}
+                style={StyleSheet.absoluteFill}
+                accessibilityLabel="Debug reset"
+              />
+            ) : null}
           </View>
 
           <View style={styles.activeTaskWrap}>
@@ -178,11 +190,11 @@ const styles = StyleSheet.create({
     minWidth: 200,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255, 255, 255, 0.21)',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
-    paddingVertical: 8,
+    paddingVertical: 1,
     paddingHorizontal: 60,
   },
   startButtonPressed: {

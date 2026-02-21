@@ -16,9 +16,9 @@ const BACKGROUND_SOURCES: Record<BackgroundVariant, ImageSourcePropType> = {
   break: require('../../assets/backgrounds/break.png'),
 };
 
-const GRAIN_SOURCE = require('../../assets/grain.png');
-const TRANSITION_MS = 250;
-const EXPO_IMAGE_TRANSITION_MS = 250;
+const TRANSITION_MS = 340;
+const INCOMING_SCALE_START = 1.02;
+const INCOMING_SCALE_END = 1;
 
 type ExpoImageComponentType = ComponentType<Record<string, unknown>>;
 let ExpoImageComponent: ExpoImageComponentType | null = null;
@@ -36,8 +36,11 @@ function resolveVariant(variant: BackgroundVariant): BackgroundVariant {
 export default function StateBackground({ mode, isPaused, variant }: StateBackgroundProps) {
   const [currentVariant, setCurrentVariant] = useState<BackgroundVariant>(() => resolveVariant(variant));
   const [incomingVariant, setIncomingVariant] = useState<BackgroundVariant | null>(null);
-  const [incomingReady, setIncomingReady] = useState(false);
   const fade = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(INCOMING_SCALE_START)).current;
+  const frameRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);
+  const transitionIdRef = useRef(0);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
     const preloadAssets = async () => {
@@ -48,7 +51,7 @@ export default function StateBackground({ mode, isPaused, variant }: StateBackgr
           };
         };
 
-        await Asset.loadAsync([BACKGROUND_SOURCES.idle, BACKGROUND_SOURCES.focus, BACKGROUND_SOURCES.break, GRAIN_SOURCE]);
+        await Asset.loadAsync([BACKGROUND_SOURCES.idle, BACKGROUND_SOURCES.focus, BACKGROUND_SOURCES.break,]);
       } catch {
         // Ignore preload failures; background fallback still works.
       }
@@ -58,38 +61,66 @@ export default function StateBackground({ mode, isPaused, variant }: StateBackgr
   }, []);
 
   useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      transitionIdRef.current += 1;
+      if (frameRef.current != null) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+      fade.stopAnimation();
+      scale.stopAnimation();
+    };
+  }, [fade, scale]);
+
+  useEffect(() => {
     const next = resolveVariant(variant);
     if (isPaused || mode === 'paused' || next === currentVariant || next === incomingVariant) {
       return;
     }
 
-    fade.stopAnimation();
-    fade.setValue(0);
-    setIncomingReady(false);
-    setIncomingVariant(next);
-  }, [currentVariant, fade, incomingVariant, isPaused, mode, variant]);
-
-  useEffect(() => {
-    if (!incomingVariant || !incomingReady) {
-      return;
+    if (frameRef.current != null) {
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
     }
-
-    Animated.timing(fade, {
-      toValue: 1,
-      duration: TRANSITION_MS,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (!finished) {
+    fade.stopAnimation();
+    scale.stopAnimation();
+    fade.setValue(0);
+    scale.setValue(INCOMING_SCALE_START);
+    transitionIdRef.current += 1;
+    const myId = transitionIdRef.current;
+    setIncomingVariant(next);
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
+      if (!mountedRef.current || myId !== transitionIdRef.current) {
         return;
       }
 
-      setCurrentVariant(incomingVariant);
-      setIncomingVariant(null);
-      setIncomingReady(false);
-      fade.setValue(0);
+      Animated.parallel([
+        Animated.timing(fade, {
+          toValue: 1,
+          duration: TRANSITION_MS,
+          easing: Easing.inOut(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(scale, {
+          toValue: INCOMING_SCALE_END,
+          duration: TRANSITION_MS,
+          easing: Easing.inOut(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished }) => {
+        if (!finished || !mountedRef.current || myId !== transitionIdRef.current) {
+          return;
+        }
+
+        setCurrentVariant(next);
+        setIncomingVariant(null);
+        fade.setValue(0);
+        scale.setValue(INCOMING_SCALE_START);
+      });
     });
-  }, [fade, incomingReady, incomingVariant]);
+  }, [currentVariant, fade, incomingVariant, isPaused, mode, scale, variant]);
 
   return (
     <View pointerEvents="none" style={styles.container}>
@@ -97,58 +128,40 @@ export default function StateBackground({ mode, isPaused, variant }: StateBackgr
         <ExpoImageComponent
           source={BACKGROUND_SOURCES[currentVariant]}
           style={styles.image}
-          contentFit="cover"
+          contentFit="contain"
           contentPosition="center"
-          transition={EXPO_IMAGE_TRANSITION_MS}
+          transition={0}
         />
       ) : (
         <Animated.Image
           source={BACKGROUND_SOURCES[currentVariant]}
           style={styles.image}
-          resizeMode="cover"
+          resizeMode="contain"
           fadeDuration={Platform.OS === 'android' ? 0 : undefined}
         />
       )}
 
       {incomingVariant ? (
-        ExpoImageComponent ? (
-          <Animated.View style={[styles.image, { opacity: fade }]}>
+        <Animated.View style={[styles.image, { opacity: fade, transform: [{ scale }] }]}>
+          {ExpoImageComponent ? (
             <ExpoImageComponent
               source={BACKGROUND_SOURCES[incomingVariant]}
               style={styles.image}
-              contentFit="cover"
+              contentFit="contain"
               contentPosition="center"
-              transition={EXPO_IMAGE_TRANSITION_MS}
-              onLoad={() => setIncomingReady(true)}
+              transition={0}
             />
-          </Animated.View>
-        ) : (
-          <Animated.Image
-            source={BACKGROUND_SOURCES[incomingVariant]}
-            style={[styles.image, { opacity: fade }]}
-            resizeMode="cover"
-            fadeDuration={Platform.OS === 'android' ? 0 : undefined}
-            onLoad={() => setIncomingReady(true)}
-          />
-        )
+          ) : (
+            <Animated.Image
+              source={BACKGROUND_SOURCES[incomingVariant]}
+              style={styles.image}
+              resizeMode="contain"
+              fadeDuration={Platform.OS === 'android' ? 0 : undefined}
+            />
+          )}
+        </Animated.View>
       ) : null}
 
-      {ExpoImageComponent ? (
-        <ExpoImageComponent
-          source={GRAIN_SOURCE}
-          style={styles.grain}
-          contentFit="cover"
-          contentPosition="center"
-          transition={EXPO_IMAGE_TRANSITION_MS}
-        />
-      ) : (
-        <Animated.Image
-          source={GRAIN_SOURCE}
-          style={styles.grain}
-          resizeMode="cover"
-          fadeDuration={Platform.OS === 'android' ? 0 : undefined}
-        />
-      )}
     </View>
   );
 }
@@ -159,9 +172,5 @@ const styles = StyleSheet.create({
   },
   image: {
     ...StyleSheet.absoluteFillObject,
-  },
-  grain: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.12,
   },
 });
