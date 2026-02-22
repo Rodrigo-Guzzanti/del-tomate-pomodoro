@@ -8,6 +8,12 @@ export type PomodoroStoredState = {
   pomodorosCompleted: number;
   endTimestampMs: number | null;
   remainingSeconds: number;
+  settings?: {
+    focusMin: number;
+    shortBreakMin: number;
+    longBreakMin: number;
+    longBreakEvery: number;
+  };
   durations: {
     focus: number;
     shortBreak: number;

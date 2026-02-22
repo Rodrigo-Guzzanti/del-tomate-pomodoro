@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Constants from 'expo-constants';
 import { unstable_batchedUpdates } from 'react-native';
 import {
   hapticEnd,
@@ -17,10 +16,15 @@ import {
   loadPomodoroState,
   savePomodoroState,
 } from '../storage/pomodoroStorage';
-import { getDefaultDurations } from '../config/durations';
 
 export type PomodoroMode = 'idle' | 'focus' | 'shortBreak' | 'longBreak' | 'paused';
 type SegmentMode = 'focus' | 'shortBreak' | 'longBreak';
+export type PomodoroSettings = {
+  focusMin: number;
+  shortBreakMin: number;
+  longBreakMin: number;
+  longBreakEvery: number;
+};
 
 type PomodoroOptions = {
   focusDuration?: number;
@@ -34,6 +38,67 @@ type PomodoroOptions = {
   autoStart?: boolean;
 };
 
+const DEFAULT_SETTINGS: PomodoroSettings = {
+  focusMin: 25,
+  shortBreakMin: 5,
+  longBreakMin: 15,
+  longBreakEvery: 4,
+};
+
+const MIN_MAX = {
+  focusMin: { min: 1, max: 90 },
+  shortBreakMin: { min: 1, max: 30 },
+  longBreakMin: { min: 1, max: 60 },
+} as const;
+
+type DurationSeconds = {
+  focus: number;
+  shortBreak: number;
+  longBreak: number;
+};
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function sanitizeSettings(next: Partial<PomodoroSettings>): PomodoroSettings {
+  return {
+    focusMin: clamp(
+      Math.round(next.focusMin ?? DEFAULT_SETTINGS.focusMin),
+      MIN_MAX.focusMin.min,
+      MIN_MAX.focusMin.max
+    ),
+    shortBreakMin: clamp(
+      Math.round(next.shortBreakMin ?? DEFAULT_SETTINGS.shortBreakMin),
+      MIN_MAX.shortBreakMin.min,
+      MIN_MAX.shortBreakMin.max
+    ),
+    longBreakMin: clamp(
+      Math.round(next.longBreakMin ?? DEFAULT_SETTINGS.longBreakMin),
+      MIN_MAX.longBreakMin.min,
+      MIN_MAX.longBreakMin.max
+    ),
+    longBreakEvery: Math.max(1, Math.round(next.longBreakEvery ?? DEFAULT_SETTINGS.longBreakEvery)),
+  };
+}
+
+function durationsFromSettings(settings: PomodoroSettings): DurationSeconds {
+  return {
+    focus: settings.focusMin * 60,
+    shortBreak: settings.shortBreakMin * 60,
+    longBreak: settings.longBreakMin * 60,
+  };
+}
+
+function settingsFromDurationSeconds(durations: DurationSeconds): PomodoroSettings {
+  return sanitizeSettings({
+    focusMin: Math.round(durations.focus / 60),
+    shortBreakMin: Math.round(durations.shortBreak / 60),
+    longBreakMin: Math.round(durations.longBreak / 60),
+    longBreakEvery: DEFAULT_SETTINGS.longBreakEvery,
+  });
+}
+
 const LABELS: Record<SegmentMode, string> = {
   focus: 'Foco',
   shortBreak: 'Descanso',
@@ -41,26 +106,35 @@ const LABELS: Record<SegmentMode, string> = {
 };
 
 export function usePomodoro(options: PomodoroOptions = {}) {
-  const devDurations = Constants.expoConfig?.extra?.devDurations ?? false;
-  const durations = useMemo(
-    () => ({
-      ...(() => {
-        const base = options.durations ?? getDefaultDurations(devDurations);
-        return {
-          focus: options.focusDuration ?? base.focus,
-          shortBreak: options.shortBreakDuration ?? base.shortBreak,
-          longBreak: options.longBreakDuration ?? base.longBreak,
-        };
-      })(),
-    }),
+  const initialSettings = useMemo(
+    () =>
+      sanitizeSettings({
+        ...DEFAULT_SETTINGS,
+        focusMin: options.focusDuration
+          ? Math.round(options.focusDuration / 60)
+          : options.durations
+            ? Math.round(options.durations.focus / 60)
+            : DEFAULT_SETTINGS.focusMin,
+        shortBreakMin: options.shortBreakDuration
+          ? Math.round(options.shortBreakDuration / 60)
+          : options.durations
+            ? Math.round(options.durations.shortBreak / 60)
+            : DEFAULT_SETTINGS.shortBreakMin,
+        longBreakMin: options.longBreakDuration
+          ? Math.round(options.longBreakDuration / 60)
+          : options.durations
+            ? Math.round(options.durations.longBreak / 60)
+            : DEFAULT_SETTINGS.longBreakMin,
+      }),
     [
-      devDurations,
       options.durations,
       options.focusDuration,
       options.shortBreakDuration,
       options.longBreakDuration,
     ]
   );
+  const [settings, setSettings] = useState<PomodoroSettings>(initialSettings);
+  const durations = useMemo(() => durationsFromSettings(settings), [settings]);
 
   const autoStart = options.autoStart ?? false;
 
@@ -77,6 +151,7 @@ export function usePomodoro(options: PomodoroOptions = {}) {
   const rehydratedRef = useRef(false);
   const modeRef = useRef<PomodoroMode>('idle');
   const userInteractedRef = useRef(false);
+  const settingsRef = useRef<PomodoroSettings>(settings);
 
   const setModeDebug = useCallback((nextMode: PomodoroMode, reason: string) => {
     const prevMode = modeRef.current;
@@ -99,6 +174,10 @@ export function usePomodoro(options: PomodoroOptions = {}) {
     currentSegmentRef.current = currentSegment;
   }, [currentSegment]);
 
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
   const getRemainingSeconds = useCallback(() => {
     if (!endTimestampRef.current) {
       return remainingSeconds;
@@ -115,14 +194,19 @@ export function usePomodoro(options: PomodoroOptions = {}) {
       pomodorosCompleted: number;
       endTimestampMs: number | null;
       remainingSeconds: number;
+      settings?: PomodoroSettings;
+      durations?: DurationSeconds;
     }) => {
+      const persistedSettings = nextState.settings ?? settingsRef.current;
+      const persistedDurations = nextState.durations ?? durationsFromSettings(persistedSettings);
       void savePomodoroState({
         ...nextState,
-        durations,
+        settings: persistedSettings,
+        durations: persistedDurations,
         updatedAt: Date.now(),
       });
     },
-    [durations]
+    []
   );
 
   const startSegment = useCallback(
@@ -182,7 +266,9 @@ export function usePomodoro(options: PomodoroOptions = {}) {
       const nextCount = pomodorosCompletedRef.current + 1;
       setPomodorosCompleted(nextCount);
       const nextSegment: SegmentMode =
-        nextCount % 4 === 0 ? 'longBreak' : 'shortBreak';
+        nextCount % settingsRef.current.longBreakEvery === 0
+          ? 'longBreak'
+          : 'shortBreak';
       if (__DEV__) {
         console.log('[Pomodoro/transition]', {
           from: 'focus',
@@ -220,6 +306,13 @@ export function usePomodoro(options: PomodoroOptions = {}) {
         return;
       }
 
+      const restoredSettings = saved.settings
+        ? sanitizeSettings(saved.settings)
+        : saved.durations
+          ? settingsFromDurationSeconds(saved.durations)
+          : initialSettings;
+      const restoredDurations = durationsFromSettings(restoredSettings);
+
       let nextSegment = saved.currentSegment;
       let nextPomodorosCompleted = saved.pomodorosCompleted;
       let nextMode: PomodoroMode = saved.mode;
@@ -244,12 +337,14 @@ export function usePomodoro(options: PomodoroOptions = {}) {
           if (nextSegment === 'focus') {
             nextPomodorosCompleted += 1;
             nextSegment =
-              nextPomodorosCompleted % 4 === 0 ? 'longBreak' : 'shortBreak';
+              nextPomodorosCompleted % restoredSettings.longBreakEvery === 0
+                ? 'longBreak'
+                : 'shortBreak';
           } else {
             nextSegment = 'focus';
           }
 
-          const duration = durations[nextSegment];
+          const duration = restoredDurations[nextSegment];
           if (!autoStart) {
             nextIsRunning = false;
             nextEndTimestampMs = null;
@@ -284,12 +379,14 @@ export function usePomodoro(options: PomodoroOptions = {}) {
       }
 
       unstable_batchedUpdates(() => {
+        setSettings(restoredSettings);
         setCurrentSegment(nextSegment);
         setPomodorosCompleted(nextPomodorosCompleted);
         setModeDebug(nextMode, 'rehydrate');
         setIsRunning(nextIsRunning);
         setRemainingSeconds(nextRemainingSeconds);
       });
+      settingsRef.current = restoredSettings;
       endTimestampRef.current = nextEndTimestampMs;
       currentSegmentRef.current = nextSegment;
       pomodorosCompletedRef.current = nextPomodorosCompleted;
@@ -301,6 +398,8 @@ export function usePomodoro(options: PomodoroOptions = {}) {
         pomodorosCompleted: nextPomodorosCompleted,
         endTimestampMs: nextEndTimestampMs,
         remainingSeconds: nextRemainingSeconds,
+        settings: restoredSettings,
+        durations: restoredDurations,
       });
 
       if (nextIsRunning && nextRemainingSeconds > 0) {
@@ -318,7 +417,7 @@ export function usePomodoro(options: PomodoroOptions = {}) {
     return () => {
       isMounted = false;
     };
-  }, [autoStart, durations, persistState, setModeDebug]);
+  }, [autoStart, initialSettings, persistState, setModeDebug]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -497,6 +596,51 @@ export function usePomodoro(options: PomodoroOptions = {}) {
     startSegment('focus', true);
   }, [mode, startSegment]);
 
+  const updateSettings = useCallback(
+    (
+      partialOrNextSettings: Partial<PomodoroSettings> | PomodoroSettings
+    ) => {
+      userInteractedRef.current = true;
+      const prevSettings = settingsRef.current;
+      const nextSettings = sanitizeSettings({
+        ...prevSettings,
+        ...partialOrNextSettings,
+      });
+      const nextDurations = durationsFromSettings(nextSettings);
+
+      setSettings(nextSettings);
+      settingsRef.current = nextSettings;
+
+      let nextRemaining = remainingSeconds;
+      if (!isRunning) {
+        const remainingSegment: SegmentMode =
+          mode === 'idle' || mode === 'paused'
+            ? currentSegmentRef.current
+            : mode;
+        nextRemaining = nextDurations[remainingSegment];
+        setRemainingSeconds(nextRemaining);
+      }
+
+      const currentMode: PomodoroMode = modeRef.current;
+      const persistedRemaining = isRunning
+        ? getRemainingSeconds()
+        : nextRemaining;
+
+      // Keep the active running session unchanged; new durations apply on the next segment.
+      persistState({
+        mode: currentMode,
+        isRunning,
+        currentSegment: currentSegmentRef.current,
+        pomodorosCompleted: pomodorosCompletedRef.current,
+        endTimestampMs: endTimestampRef.current,
+        remainingSeconds: persistedRemaining,
+        settings: nextSettings,
+        durations: nextDurations,
+      });
+    },
+    [getRemainingSeconds, isRunning, mode, persistState, remainingSeconds]
+  );
+
   const labelMode: SegmentMode =
     mode === 'paused' || mode === 'idle' ? currentSegment : mode;
 
@@ -505,11 +649,13 @@ export function usePomodoro(options: PomodoroOptions = {}) {
     isRunning,
     remainingSeconds,
     pomodorosCompleted,
+    settings,
     label: LABELS[labelMode],
     start,
     pause,
     resume,
     reset,
     skipBreak,
+    updateSettings,
   };
 }

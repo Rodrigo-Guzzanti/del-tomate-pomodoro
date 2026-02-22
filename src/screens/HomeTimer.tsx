@@ -1,14 +1,27 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { StatusBar } from 'expo-status-bar';
 import StateBackground, { type BackgroundVariant } from '../components/StateBackground';
+import SettingsModal from '../components/SettingsModal';
 import { usePomodoro, type PomodoroMode } from '../hooks/usePomodoro';
 import { typography } from '../theme/tokens';
+import SettingsIcon from '../../assets/icons/config-icon.svg';
 
 export default function HomeTimer() {
-  const { mode, isRunning, remainingSeconds, start, pause, resume, reset } = usePomodoro();
+  const {
+    mode,
+    isRunning,
+    remainingSeconds,
+    settings,
+    start,
+    pause,
+    resume,
+    reset,
+    updateSettings,
+  } = usePomodoro();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const minutes = Math.floor(remainingSeconds / 60);
   const seconds = remainingSeconds % 60;
@@ -45,8 +58,13 @@ export default function HomeTimer() {
 
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
         <View style={styles.header}>
-          <Pressable accessibilityRole="button" style={styles.settingsButton}>
-            <Text style={styles.settingsGlyph}>⚙</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open timer settings"
+            onPress={() => setSettingsOpen(true)}
+            style={styles.settingsButton}
+          >
+            <Text style={styles.settingsGlyph}>  <SettingsIcon width={20} height={20} /> </Text>
           </Pressable>
         </View>
 
@@ -96,6 +114,20 @@ export default function HomeTimer() {
           )}
         </View>
       </SafeAreaView>
+
+      <SettingsModal
+        visible={settingsOpen}
+        initial={{
+          focusMin: settings.focusMin,
+          shortBreakMin: settings.shortBreakMin,
+          longBreakMin: settings.longBreakMin,
+        }}
+        onCancel={() => setSettingsOpen(false)}
+        onSave={(next) => {
+          updateSettings(next);
+          setSettingsOpen(false);
+        }}
+      />
     </View>
   );
 }
