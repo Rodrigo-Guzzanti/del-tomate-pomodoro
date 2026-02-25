@@ -1,5 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useRef, useState } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { StatusBar } from 'expo-status-bar';
@@ -22,6 +22,8 @@ export default function HomeTimer() {
     updateSettings,
   } = usePomodoro();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsPressScale = useRef(new Animated.Value(1)).current;
+  const settingsOpenProgress = useRef(new Animated.Value(0)).current;
 
   const minutes = Math.floor(remainingSeconds / 60);
   const seconds = remainingSeconds % 60;
@@ -50,6 +52,36 @@ export default function HomeTimer() {
   if (__DEV__) console.log('[HomeTimer/bg]', { mode, baseMode, variant });
 
   const onStartPress = mode === 'paused' ? resume : start;
+  const settingsRotate = settingsOpenProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '35deg'],
+  });
+
+  useEffect(() => {
+    Animated.timing(settingsOpenProgress, {
+      toValue: settingsOpen ? 1 : 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [settingsOpen, settingsOpenProgress]);
+
+  const handleSettingsPressIn = () => {
+    Animated.spring(settingsPressScale, {
+      toValue: 0.94,
+      speed: 26,
+      bounciness: 0,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handleSettingsPressOut = () => {
+    Animated.spring(settingsPressScale, {
+      toValue: 1,
+      speed: 26,
+      bounciness: 0,
+      useNativeDriver: true,
+    }).start();
+  };
 
   return (
     <View style={styles.screen}>
@@ -61,10 +93,20 @@ export default function HomeTimer() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Open timer settings"
+            onPressIn={handleSettingsPressIn}
+            onPressOut={handleSettingsPressOut}
             onPress={() => setSettingsOpen(true)}
             style={styles.settingsButton}
           >
-            <Text style={styles.settingsGlyph}>  <SettingsIcon width={20} height={20} /> </Text>
+            <Animated.View
+              style={{
+                transform: [{ scale: settingsPressScale }, { rotate: settingsRotate }],
+              }}
+            >
+              <Text style={styles.settingsGlyph}>
+                <SettingsIcon width={20} height={20} />
+              </Text>
+            </Animated.View>
           </Pressable>
         </View>
 
