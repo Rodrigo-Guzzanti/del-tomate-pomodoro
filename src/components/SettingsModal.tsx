@@ -61,6 +61,7 @@ function SettingRow({
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
       <View style={styles.control}>
+        <View pointerEvents="none" style={styles.controlHighlight} />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Decrease ${label}`}
@@ -241,7 +242,9 @@ const styles = StyleSheet.create({
     borderWidth: 0.5,
     borderColor: 'rgba(255,255,255,0.16)',
     paddingHorizontal: 8,
-    paddingVertical: 5,
+    paddingVertical: 10,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(8, 30, 37, 0.36)',
   },
 
 controlButton: {
@@ -254,7 +257,8 @@ controlButton: {
 },
   
   controlButtonPressed: {
-    opacity: 0.82,
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
   },
   controlButtonDisabled: {
     opacity: 0.35,
@@ -285,7 +289,19 @@ controlButton: {
     justifyContent: 'center',
   },
   actionPressed: {
-    opacity: 0.75,
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
+  },
+  controlHighlight: {
+    position: 'absolute',
+    width: '64%',
+    height: '165%',
+    top: '-70%',
+    left: '-6%',
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    opacity: 0.25,
+    transform: [{ rotate: '-25deg' }],
   },
   cancelText: {
     fontSize: typography.size.md,

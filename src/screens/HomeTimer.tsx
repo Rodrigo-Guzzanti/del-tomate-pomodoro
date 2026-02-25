@@ -1,4 +1,4 @@
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
@@ -24,6 +24,7 @@ export default function HomeTimer() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsPressScale = useRef(new Animated.Value(1)).current;
   const settingsOpenProgress = useRef(new Animated.Value(0)).current;
+  const toggleT = useRef(new Animated.Value(isRunning ? 1 : 0)).current;
 
   const minutes = Math.floor(remainingSeconds / 60);
   const seconds = remainingSeconds % 60;
@@ -56,6 +57,23 @@ export default function HomeTimer() {
     inputRange: [0, 1],
     outputRange: ['0deg', '35deg'],
   });
+  const startOpacity = toggleT.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0],
+  });
+  const pauseOpacity = toggleT.interpolate({
+    inputRange: [0, 0.2, 1],
+    outputRange: [0, 0, 1],
+    extrapolate: 'clamp',
+  });
+  const startScale = toggleT.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0.985],
+  });
+  const pauseScale = toggleT.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.985, 1],
+  });
 
   useEffect(() => {
     Animated.timing(settingsOpenProgress, {
@@ -64,6 +82,15 @@ export default function HomeTimer() {
       useNativeDriver: true,
     }).start();
   }, [settingsOpen, settingsOpenProgress]);
+
+  useEffect(() => {
+    Animated.timing(toggleT, {
+      toValue: isRunning ? 1 : 0,
+      duration: 2100,
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [isRunning, toggleT]);
 
   const handleSettingsPressIn = () => {
     Animated.spring(settingsPressScale, {
@@ -116,6 +143,7 @@ export default function HomeTimer() {
             <BlurView intensity={10} tint="dark" style={StyleSheet.absoluteFill} />
 
             <View style={styles.timerPillOverlay} />
+            <View pointerEvents="none" style={styles.timerPillHighlight} />
             <Text style={styles.timerValue}>{timeLabel}</Text>
             {__DEV__ ? (
               <Pressable
@@ -134,26 +162,48 @@ export default function HomeTimer() {
         </View>
 
         <View style={styles.bottomArea}>
-          {!isRunning ? (
-            <Pressable
-              onPress={onStartPress}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.startButton, pressed && styles.startButtonPressed]}
+          <View style={styles.actionSlot}>
+            <Animated.View
+              pointerEvents={isRunning ? 'none' : 'auto'}
+              style={[
+                styles.actionLayer,
+                {
+                  opacity: startOpacity,
+                  transform: [{ scale: startScale }],
+                },
+              ]}
             >
-              <BlurView intensity={10} tint="dark" style={StyleSheet.absoluteFill} />
-              <View style={styles.startButtonOverlay} />
-              <Text style={styles.startButtonText}>Start</Text>
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={pause}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.pauseLinkTouch, pressed && styles.pauseLinkPressed]}
+              <Pressable
+                onPress={onStartPress}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.startButton, pressed && styles.startButtonPressed]}
+              >
+                <BlurView intensity={10} tint="dark" style={StyleSheet.absoluteFill} />
+                <View style={styles.startButtonOverlay} />
+                <Text style={styles.startButtonText}>Start</Text>
+              </Pressable>
+            </Animated.View>
+
+            <Animated.View
+              pointerEvents={isRunning ? 'auto' : 'none'}
+              style={[
+                styles.actionLayer,
+                {
+                  opacity: pauseOpacity,
+                  transform: [{ scale: pauseScale }],
+                },
+              ]}
             >
-              <Text style={styles.pauseLinkText}>Pause</Text>
-              <View style={styles.pauseUnderline} />
-            </Pressable>
-          )}
+              <Pressable
+                onPress={pause}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.pauseLinkTouch, pressed && styles.pauseLinkPressed]}
+              >
+                <Text style={styles.pauseLinkText}>Pause</Text>
+                <View style={styles.pauseUnderline} />
+              </Pressable>
+            </Animated.View>
+          </View>
         </View>
       </SafeAreaView>
 
@@ -260,6 +310,16 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: 18,
   },
+  actionSlot: {
+    width: '100%',
+    minHeight: 58,
+    position: 'relative',
+  },
+  actionLayer: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   startButton: {
     minWidth: 200,
     borderRadius: 999,
@@ -271,12 +331,25 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     paddingHorizontal: 60,
   },
+  
   startButtonPressed: {
-    opacity: 0.88,
+    opacity: 0.92,
+    transform: [{ scale: 0.985 }],
   },
   startButtonOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(8,30,37,0.20)',
+  },
+  timerPillHighlight: {
+    position: 'absolute',
+    width: '85%',
+    height: '120%',
+    top: '-36%',
+    left: '-12%',
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+    opacity: 0.22,
+    transform: [{ rotate: '-25deg' }],
   },
   startButtonText: {
     fontSize: 32,
